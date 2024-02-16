@@ -4,19 +4,20 @@ import datetime
 import requests
 import html
 import psycopg2  # 导入 psycopg2 库进行PostgreSQL数据库操作
+# from zoneinfo import ZoneInfo
+from datetime import datetime
 
-# 尝试导入zoneinfo，如果失败则从backports导入
-try:
-    from zoneinfo import ZoneInfo
-except ImportError:
-    from backports.zoneinfo import ZoneInfo
+# # 尝试导入zoneinfo，如果失败则从backports导入
+# try:
+#     from zoneinfo import ZoneInfo
+# except ImportError:
+#     from backports.zoneinfo import ZoneInfo
 
 from db import get_db_conn
 
 URL = 'https://visitseattle.org/events/page/'
 URL_LIST_FILE = './data/links.json'
 URL_DETAIL_FILE = './data/data.json'
-
 
 def get_location(query):
     """Get latitude and longitude for a query using Nominatim API."""
@@ -40,6 +41,27 @@ def list_links():
 
     json.dump(links, open(URL_LIST_FILE, 'w'))
 
+def fetch_weather(latitude, longitude):
+    """Fetch detailed weather data for the given latitude and longitude."""
+    url = f"https://api.weather.gov/points/{latitude},{longitude}"
+    response = requests.get(url)
+    if response.status_code == 200:
+        point_data = response.json()
+        forecast_url = point_data['properties']['forecast']
+        forecast_response = requests.get(forecast_url)
+        if forecast_response.status_code == 200:
+            forecast_data = forecast_response.json()
+            periods = forecast_data['properties']['periods']
+            if periods:  # Check if periods list is not empty
+                period = periods[0]  # Assuming first period is the target
+                return {
+                    'condition': period['shortForecast'],
+                    'temperature_max': period['temperature'],
+                    'temperature_min': None,  # Adjust logic if needed
+                    'wind_chill': None  # Adjust logic if needed
+                }
+    return None
+
 def get_detail_page():
     links = json.load(open(URL_LIST_FILE, 'r'))
     data = []
@@ -49,14 +71,22 @@ def get_detail_page():
             res = requests.get(link)
             row['title'] = html.unescape(re.findall(r'<h1 class="page-title" itemprop="headline">(.+?)</h1>', res.text)[0])
             datetime_venue = re.findall(r'<h4><span>.*?(\d{1,2}/\d{1,2}/\d{4})</span> \| <span>(.+?)</span></h4>', res.text)[0]
-            row['date'] = datetime.datetime.strptime(datetime_venue[0], '%m/%d/%Y').replace(tzinfo=ZoneInfo('America/Los_Angeles')).isoformat()
+            row['date'] = datetime.strptime(datetime_venue[0], '%m/%d/%Y').isoformat()
             row['venue'] = datetime_venue[1].strip()
             metas = re.findall(r'<a href=".+?" class="button big medium black category">(.+?)</a>', res.text)
             row['category'] = html.unescape(metas[0])
             row['location'] = metas[1]
             lat, lon = get_location(row['location'] + ", Seattle")
             if lat and lon:
-                row['geolocation'] = f"{lon}, {lat}"  # 以"经度, 纬度"的格式保存经纬度信息
+                row['geolocation'] = f"{lat}, {lon}"
+                weather = fetch_weather(lat, lon)
+                if weather:
+                    row.update(weather)
+                else:
+                    row['weather_condition'] = 'Weather data not available'
+                    row['temperature_max'] = 'Not available'
+                    row['temperature_min'] = 'Not available'
+                    row['wind_chill'] = 'Not available'
             data.append(row)
         except IndexError as e:
             print(f'Error: {e}')
@@ -75,26 +105,21 @@ def insert_to_pg():
             venue TEXT,
             category TEXT,
             location TEXT,
-            geolocation TEXT
+            geolocation TEXT,
+            weather_condition TEXT,
+            temperature_max INT,
+            temperature_min INT,
+            wind_chill INT
         );
     ''')
-    # try:
-    #    cur.execute('ALTER TABLE events ADD COLUMN geolocation TEXT;')
-    #    conn.commit()  # 应用更改
-    #except Exception as e:
-    #    print(f"An error occurred: {e}")
-    #    conn.rollback()  # 其他错误，撤销操作
 
-    urls = json.load(open(URL_LIST_FILE, 'r'))
-    data = json.load(open(URL_DETAIL_FILE, 'r'))
-    for url, row in zip(urls, data):
+    for row in data:
         q = '''
-            INSERT INTO events (url, title, date, venue, category, location, geolocation)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (url) DO UPDATE 
-            SET geolocation = EXCLUDED.geolocation;
-    '''
-        cur.execute(q, (url, row['title'], row['date'], row['venue'], row['category'], row['location'], row.get('geolocation')))
+            INSERT INTO events (title, date, venue, category, location, geolocation, weather_condition, temperature_max, temperature_min, wind_chill)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (title, date) DO NOTHING;
+        '''
+        cur.execute(q, (row['title'], row['date'], row['venue'], row['category'], row['location'], row.get('geolocation'), row.get('weather_condition'), row.get('temperature_max'), row.get('temperature_min'), row.get('wind_chill')))
     conn.commit()
     cur.close()
     conn.close()
