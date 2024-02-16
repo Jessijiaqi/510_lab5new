@@ -1,19 +1,20 @@
 # 510_lab5new
-Web-scrapping for Seattleevent website 
+A interactive data visualization app for events in Seattle
 
 ## what's Included
-- ```Visitseattle.ipynb```:Jupiter notebook about web-scraping 
-- ```events.csv``` :A csv file of basic information about events scraped at https://visitseattle.org.
-- ```events_update.csv```A csv file with the time format changed and latitude and longitude information added.
-- ```events_with_weather```A csv file with valid weather for seven days from 1.26 onwards.
+- ```app.py```:python script about the app 
+- ```db.py``` :connect the dataset in DB
+- ```scraper.py```to fetch the information of seattle events and store the data
 
 
 ## What I have Learned From This Lab
 - Scrap the specific information on the website
-- Using API to get information
-- Using "selecor" to filter information I want
-- change the date format
+- store the data in a remote dataset
+- how to cinnect DB,Azure and local dataset
+- how to alter the event table
+- how to create an interactive map fot filtered event
+- create chart
 
 ## Qusetions/Uncertanties
-- I was only able to grab the weather information for seven days from 1.26 onwards.
-- I don't know what to do with "going" and "now through + date" times.
+- I always encounter the error for invalid index
+- Sometimes after I succeed the workflow, it would crash and fail
