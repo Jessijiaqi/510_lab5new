@@ -84,15 +84,14 @@ def get_detail_page():
                 if weather:
                     row.update(weather)
                 else:
-                    row['weather_condition'] = 'Weather data not available'
-                    row['temperature_max'] = 'Not available'
-                    row['temperature_min'] = 'Not available'
-                    row['wind_chill'] = 'Not available'
+                    row['weather_condition'] = None  
+                    row['temperature_max'] = None  
+                    row['temperature_min'] = None 
+                    row['wind_chill'] = None  
             data.append(row)
         except Exception as e:
             print(f'Error processing {link}: {e}')
     json.dump(data, open(URL_DETAIL_FILE, 'w'), indent=4)
-
 
 def insert_to_pg():
     data = json.load(open(URL_DETAIL_FILE, 'r'))

@@ -39,14 +39,24 @@ st.altair_chart(
 )
 
 
+category_options = ['All'] + list(df['category'].unique())
+category = st.selectbox("Select a category", category_options)
 
-category = st.selectbox("Select a category", df['category'].unique())
+# Filter the dataframe for the selected category
+if category != 'All':
+    df = df[df['category'] == category]
 
 
 
-# Dropdown to filter by location
-selected_location = st.selectbox("Select a location", df['location'].unique())
-df = df[df['location'] == selected_location]
+# Create a list of unique locations for the dropdown
+location_options = ['All'] + list(df['location'].unique())
+selected_location = st.selectbox("Select a location", location_options)
+
+#   Filter the dataframe for the selected location
+if selected_location != 'All':
+    df = df[df['location'] == selected_location]
+
+
 
 # Convert the 'date' column to datetime objects, including timezone
 df['date'] = pd.to_datetime(df['date'], utc=True)
@@ -78,6 +88,8 @@ for index, event in df.iterrows():
         longitude, latitude = map(float, event['geolocation'].split(','))
         folium.Marker([latitude, longitude], popup=event['title']).add_to(m)
 st_folium(m, width=1200, height=600)
+
+
 
 # df = df[df['category'] == category]
 # st.write(df)
