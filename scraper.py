@@ -7,12 +7,6 @@ import psycopg2  # 导入 psycopg2 库进行PostgreSQL数据库操作
 # from zoneinfo import ZoneInfo
 from datetime import datetime
 
-# # 尝试导入zoneinfo，如果失败则从backports导入
-# try:
-#     from zoneinfo import ZoneInfo
-# except ImportError:
-#     from backports.zoneinfo import ZoneInfo
-
 from db import get_db_conn
 
 URL = 'https://visitseattle.org/events/page/'
@@ -67,15 +61,22 @@ def get_detail_page():
     data = []
     for link in links:
         try:
-            row = {}
+            row = {'url': link}
             res = requests.get(link)
-            row['title'] = html.unescape(re.findall(r'<h1 class="page-title" itemprop="headline">(.+?)</h1>', res.text)[0])
-            datetime_venue = re.findall(r'<h4><span>.*?(\d{1,2}/\d{1,2}/\d{4})</span> \| <span>(.+?)</span></h4>', res.text)[0]
-            row['date'] = datetime.strptime(datetime_venue[0], '%m/%d/%Y').isoformat()
-            row['venue'] = datetime_venue[1].strip()
-            metas = re.findall(r'<a href=".+?" class="button big medium black category">(.+?)</a>', res.text)
-            row['category'] = html.unescape(metas[0])
-            row['location'] = metas[1]
+            title_search = re.findall(r'<h1 class="page-title" itemprop="headline">(.+?)</h1>', res.text)
+            datetime_venue_search = re.findall(r'<h4><span>.*?(\d{1,2}/\d{1,2}/\d{4})</span> \| <span>(.+?)</span></h4>', res.text)
+            metas_search = re.findall(r'<a href=".+?" class="button big medium black category">(.+?)</a>', res.text)
+            
+            if not title_search or not datetime_venue_search or not metas_search:
+                print(f'Skipping, required data missing in: {link}')
+                continue
+            
+            row['title'] = html.unescape(title_search[0])
+            row['date'] = datetime.strptime(datetime_venue_search[0][0], '%m/%d/%Y').isoformat()
+            row['venue'] = datetime_venue_search[0][1].strip()
+            row['category'] = html.unescape(metas_search[0])
+            row['location'] = metas_search[1] if len(metas_search) > 1 else "Unknown Location"
+            
             lat, lon = get_location(row['location'] + ", Seattle")
             if lat and lon:
                 row['geolocation'] = f"{lat}, {lon}"
@@ -88,15 +89,16 @@ def get_detail_page():
                     row['temperature_min'] = 'Not available'
                     row['wind_chill'] = 'Not available'
             data.append(row)
-        except IndexError as e:
-            print(f'Error: {e}')
-            print(f'Link: {link}')
+        except Exception as e:
+            print(f'Error processing {link}: {e}')
     json.dump(data, open(URL_DETAIL_FILE, 'w'), indent=4)
+
 
 def insert_to_pg():
     data = json.load(open(URL_DETAIL_FILE, 'r'))
     conn = get_db_conn()
     cur = conn.cursor()
+    # 确保表中包含所有列
     cur.execute('''
         CREATE TABLE IF NOT EXISTS events (
             id SERIAL PRIMARY KEY,
@@ -109,20 +111,22 @@ def insert_to_pg():
             weather_condition TEXT,
             temperature_max INT,
             temperature_min INT,
-            wind_chill INT
+            wind_chill INT,
+            url TEXT
         );
     ''')
 
     for row in data:
         q = '''
-            INSERT INTO events (title, date, venue, category, location, geolocation, weather_condition, temperature_max, temperature_min, wind_chill)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (title, date) DO NOTHING;
+            INSERT INTO events (title, date, venue, category, location, geolocation, weather_condition, temperature_max, temperature_min, wind_chill, url)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (url) DO NOTHING
         '''
-        cur.execute(q, (row['title'], row['date'], row['venue'], row['category'], row['location'], row.get('geolocation'), row.get('weather_condition'), row.get('temperature_max'), row.get('temperature_min'), row.get('wind_chill')))
+        cur.execute(q, (row['title'], row['date'], row['venue'], row['category'], row['location'], row.get('geolocation'), row.get('weather_condition'), row.get('temperature_max'), row.get('temperature_min'), row.get('wind_chill'), row['url']))
     conn.commit()
     cur.close()
     conn.close()
+
 
 if __name__ == '__main__':
     list_links()
